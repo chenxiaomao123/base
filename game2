@@ -1,0 +1,95 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract MultiPlayerGuessNumber {
+    address public immutable owner;
+    uint8 private targetNum;
+    uint public totalGuessCount;
+    mapping(address => uint) public playerGuessCount;
+    bool public gameActive = true;
+
+    string private constant TIP_INIT = "Guess a number between 1 and 100!";
+    string private constant TIP_HIGH = "Too high! Try again.";
+    string private constant TIP_LOW = "Too low! Try again.";
+    string private constant TIP_CORRECT = "Correct! New number generated.";
+    string private constant TIP_INACTIVE = "Game paused! Contact owner.";
+    string private constant TIP_INVALID_NUM = "Invalid: 1-100 only";
+    string public tipText;
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only owner");
+        _;
+    }
+
+    modifier gameIsActive() {
+        require(gameActive, TIP_INACTIVE);
+        _;
+    }
+
+    constructor() {
+        owner = msg.sender;
+        _generateRandomNum();
+        tipText = TIP_INIT;
+    }
+
+    function _generateRandomNum() internal {
+        uint random = uint(keccak256(abi.encodePacked(blockhash(block.number - 1), block.timestamp, block.prevrandao))) % 100;
+        targetNum = random == 0 ? 1 : uint8(random);
+    }
+
+    function guessNum(uint8 _inputNum) external gameIsActive {
+        require(_inputNum >= 1 && _inputNum <= 100, TIP_INVALID_NUM);
+        totalGuessCount++;
+        playerGuessCount[msg.sender]++;
+        uint8 num = targetNum;
+
+        if (_inputNum > num) tipText = TIP_HIGH;
+        else if (_inputNum < num) tipText = TIP_LOW;
+        else {
+            tipText = TIP_CORRECT;
+            _generateRandomNum();
+        }
+    }
+
+    function toggleGameActive() external onlyOwner {
+        gameActive = !gameActive;
+        tipText = gameActive ? TIP_INIT : TIP_INACTIVE;
+    }
+
+    function resetGlobalGame() external onlyOwner {
+        _generateRandomNum();
+        tipText = TIP_INIT;
+        totalGuessCount = 0;
+    }
+
+    function resetSinglePlayer(address _player) external onlyOwner {
+        playerGuessCount[_player] = 0;
+    }
+
+    function batchResetPlayers(address[] calldata _players) external onlyOwner {
+        uint256 len = _players.length;
+        for (uint256 i = 0; i < len; i++) {
+            playerGuessCount[_players[i]] = 0;
+        }
+    }
+
+    function getTopPlayer(address[] calldata _players) external view returns (address topPlayer, uint minGuesses) {
+        minGuesses = type(uint).max;
+        uint256 len = _players.length;
+        for (uint256 i = 0; i < len; i++) {
+            uint count = playerGuessCount[_players[i]];
+            if (count > 0 && count < minGuesses) {
+                minGuesses = count;
+                topPlayer = _players[i];
+            }
+        }
+    }
+
+    function withdrawEth() external onlyOwner {
+        (bool success,) = payable(owner).call{value: address(this).balance}("");
+        require(success, "Withdraw failed");
+    }
+
+    receive() external payable {}
+    fallback() external payable {}
+}
